@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<head>
+<meta charset="utf-8">
+<META HTTP-EQUIV="Pragma" CONTENT="no-cache">
+<style>
+
+body {
+  background: white;
+  padding: 0;
+  margin: 0;
+}
+
+.node {
+  font: 18px MS Gothic, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-weight: 400;
+  fill: #bbb;
+}
+
+.node--stuck {
+  font-weight: 700 !important;
+  fill: #000 !important;
+  text-decoration: underline overline;
+}
+
+.node--stuck2 {
+  font-weight: 700 !important;
+  fill: #007329 !important;
+  text-decoration: underline overline;
+}
+
+.link {
+  fill: none;
+  pointer-events: none;
+}
+
+.node--hover {
+  font-weight: 700;
+  fill: #2ca02c;
+}
+
+.link--disappear {
+  stroke-opacity: 0.0 !important;
+  /*stroke-width: 3px !important;*/
+}
+
+.results {
+  font-family: monospace;
+  font-size: 16px;
+  white-space: pre;
+  position: fixed;
+  border: solid 3px;
+  padding: 10px;
+  visibility: hidden;
+  background: white;
+  opacity: 0.9;
+  top: 110px;
+  cursor: move;
+  overflow: scroll;
+  left: 0;
+}
+
+.results--show {
+  visibility: visible;
+}
+
+.track-name:hover {
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.chord:hover {
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.playing {
+  color:darkorange;
+}
+
+.playing-faded {
+  color:rgb(255, 200, 133); !important;
+}
+
+.track-name {
+  text-align: right;
+}
+
+.track-name2 {
+  color: #007329;
+}
+
+.dialog {
+  position: fixed;
+  left: 5%;
+  top: 10px;
+  background: rgba(65, 65, 65, 0.85);
+  color: rgb(232, 232, 232);
+  font-family: sans-serif;
+  padding-left: 30px;
+  padding-right: 30px;
+  border-radius: 15px;
+  box-shadow: rgb(68, 68, 68) 1px 1px 1px 1px;
+  padding-top:15px;
+  padding-bottom:15px;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  font-family: Helvetica Neue;
+  font-weight: 200;
+}
+
+.message {
+  display: table-cell;
+  vertical-align: middle;
+  text-align: left;
+  padding-right: 20px;
+  max-width: 50em;
+}
+
+.message-holder {
+  height: 100%;
+}
+
+.close-button {
+  position: absolute;
+  right: 10px;
+  top: 5px;
+  color: rgb(96, 100, 144);
+  border: solid 1px gray;
+  border-radius: 10em;
+  width: 15px;
+  height: 15px;
+  background: rgb(218, 218, 137);
+  text-align: center;
+  vertical-align: middle;
+  padding: 1px;
+  font-size: 14px;
+  cursor: pointer;
+  display: inline-block;
+}
+
+.close-x {
+  vertical-align: top;
+  display: inline-block;
+  line-height: 15px;
+  height: 15px;
+}
+
+.close-button:hover {
+  background: rgb(249, 249, 51);
+  color: rgb(119, 113, 205);
+}
+
+.footer {
+  position: fixed;
+  background: rgb(182, 182, 182);
+  width: 100%;
+  height: 100px;
+  bottom: 0;
+  opacity: 0.5;
+}
+
+td {
+  text-align: center;
+  padding-left: 0.5em;
+  padding-right: 0.5em;
+}
+
+.copyright {
+  text-align: right;
+  margin-right: 10px;
+  margin-top: 10px;
+  font-family: Helvetica;
+  color: gray;
+  font-size: 0.7em;
+}
+
+</style>
+<title>Sonority Demo</title>
+</head>
+<body>
+  <div class="copyright">Sonority &copy; 2017 by Dylan Freedman</div>
+  <div class="dialog">
+    <div class="message-holder">
+      <span class="message">The Beatles&rsquo; discography is displayed below in a graph showing computed harmonic similarity between songs. Mouse over any song name to view its harmonic connections. Click on any song to compare with other songs.</span>
+    </div>
+    <span class="close-button" onclick="dialogHidden = true; $('.dialog').fadeOut()"><span class="close-x">&#10005;</span></span>
+  </div>
+
+  <div class="results" onmouseover="resultsMouseover()"></div>
+  <!--<div class="footer"></div>-->
+  <!-- <div style="position:absolute;bottom:0;font-size:18px;">tension: <input style="position:relative;top:3px;" type="range" min="0" max="100" value="85"></div> -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.11.2/jquery-ui.min.js"></script>
+<script src="js/popcorn-complete.min.js"></script>
+<script>
+
+$(".results").draggable();
+
+// var diameter = 1200,
+//     radius = diameter / 2,
+//     innerRadius = radius - 400;
+
+var dialogHidden = false;
+
+var diameter = 1800,
+    radius = diameter / 2,
+    innerRadius = radius - 500;
+
+var cluster = d3.layout.cluster()
+    .size([360, innerRadius])
+    .sort(null)
+    .value(function(d) { return d.size; });
+
+var bundle = d3.layout.bundle();
+
+var line = d3.svg.line.radial()
+    .interpolate("bundle")
+    .tension(0.85)
+    .radius(function(d) { return d.y; })
+    .angle(function(d) { return d.x * Math.PI / 180; });
+
+var svg = d3.select("body").append("svg")
+    .attr("width", diameter)
+    .attr("height", diameter)
+  .append("g")
+    .attr("transform", "translate(" + radius + "," + radius + ")");
+
+var link = svg.append("g").selectAll(".link"),
+    node = svg.append("g").selectAll(".node");
+
+var stuck = null;
+var stuck2 = null;
+var name1, label1;
+var frozen = false;
+
+var norm, open, ext, mul, sub, tension, filter;
+
+var messageState = 'mouseover';
+var resultsPosition = 'top';
+
+var colors = d3.scale.pow().exponent(10).range(["#0066FF","#990000"]).domain([0,1]).clamp(true);
+// var colors = d3.scale.pow().exponent(10).range(["#00FCFF","#990000"]).domain([0,1]).clamp(true);
+var opacity = d3.scale.pow().exponent(100).range([0.05, 1]).domain([0,1]).clamp(true);
+var opacity_hover = d3.scale.pow().exponent(50).range([0.15, 1]).domain([0,1]).clamp(true);
+var swidth = d3.scale.pow().exponent(10).range([0.5, 5]).domain([0,1]).clamp(true);
+var swidth_hover = d3.scale.pow().exponent(10).range([1.5, 8]).domain([0,1]).clamp(true);
+var fontweight_hover = d3.scale.pow().exponent(10).range([400, 800]).domain([0,1]).clamp(true);
+
+d3.json("data.json", function(error, json) {
+  if (error) return console.warn(error);
+
+  var nodes_map = {};
+
+  tension = json["tension"];
+  line.tension(tension);
+
+  filter = json["percentile"];
+
+  norm = json["norm"];
+  open = json["open"];
+  ext = json["ext"];
+  mul = json["mul"];
+  sub = json["sub"];
+  
+  var songs = json["songs"];
+
+  var weights = []
+  json["links"].forEach(function(e) {
+    weights.push(e.w);
+  });
+
+  var q=d3.scale.quantile().domain([0,1]).range(weights);
+  var quantiles = q.quantiles();
+  quantiles.unshift(0.0);
+  // quantiles.push(1.0);
+  var percentile=d3.scale.quantile().domain(weights).range(quantiles);
+
+  var nodes = [];
+
+  songs.forEach(function(s) {
+    var created = {"name": getAlbumName(s.f) + ': ' + getSimpleName(s.f), "file": s.f, "parent":"0"};
+    // var created = {"name": getSimpleName(s.f), "file": s.f, "parent":"0"};
+    nodes.push(created);
+  });
+
+  var root_node = {
+    "name": "0",
+    "children": nodes
+  };
+
+  clustered_nodes = cluster.nodes(root_node);
+
+  var links = [];
+  json["links"].forEach(function (d) {
+      links.push({"source":nodes[d.s],"target":nodes[d.t],"weight":percentile(d.w)});
+  });
+
+  var splines = bundle(links);
+  for (var i = 0; i < splines.length; i++) {
+    splines[i].weight = links[i].weight;
+  }
+
+  link = link
+    .data(splines)
+    .enter().append("path")
+    .each(function(d) { d.source = d[0], d.target = d[d.length - 1]; })
+    .attr("class", "link")
+    .style("stroke-width", function (d) { return swidth(d.weight); })
+    .style("stroke", function (d) { return colors(d.weight); })
+    .style("stroke-opacity", function (d) { return opacity(d.weight); })
+    .attr("d", line);
+
+  node = node
+    .data(clustered_nodes.filter(function(n) { return !n.children; }))
+    .enter().append("text")
+    .attr("class", "node")
+    .attr("dy", ".1em")
+    .attr("transform", function(d) { return "rotate(" + (d.x - 90 + (d.x < 180 ? 0.4 : -0.4)) + ")translate(" + (d.y + 8) + ",0)" + (d.x < 180 ? "" : "rotate(180)"); })
+    .style("text-anchor", function(d) { return d.x < 180 ? "start" : "end"; })
+    .text(function(d) { return d.name; })
+    .on("mouseover", mouseovered)
+    .on("mouseout", mouseouted)
+    .on("click", clicked);
+
+  var svgRect = $('svg')[0].getBoundingClientRect();
+  var gRect = $('svg > g')[0].getBoundingClientRect();
+  
+  $('svg').width(gRect.width + 50);
+  $('svg').height(gRect.height + 50);
+  
+  var offsetLeft = gRect.left - svgRect.left;
+  var offsetTop = gRect.top - svgRect.top;
+  
+  $('svg > g').attr('transform', 'translate(' + (radius - offsetLeft + 25) + ',' + (radius - offsetTop + 25) + ')');
+
+  // d3.select("input[type=range]").on("change", function() {
+  //   line.tension(this.value / 100);
+  //   link.attr("d", function(d, i) { return line(splines[i]); });
+  // });
+});
+
+var audio1;
+var audio2;
+
+var pop1, pop2;
+
+var createAudio1, createAudio2;
+
+var audioCreated1 = false;
+var audioCreated2 = false;
+
+function stopAudio() {
+  if (pop1 !== undefined) {
+    pop1.pause();
+  }
+  if (pop2 !== undefined) {
+    pop2.pause();
+  }
+}
+
+function getSimpleName(s) {
+  var s2 = s.split(' - ');
+  var s3 = s2[s2.length - 1].split('.')[0];
+  return s3.substring(s3.indexOf(' ') + 1);
+}
+
+function getAlbumName(s) {
+  var s2 = s.split('/');
+  return s2[s2.length - 1].split(' - ')[1];
+}
+
+function constructSwrPath(s1, s2) {
+  return 'swr/' + s1 + '~' + s2 + '.html';
+}
+
+function mouseovered(d) {
+  if (frozen) {
+    return;
+  }
+  if (messageState == 'mouseover') {
+    messageState = 'click';
+  }
+  if (stuck != null) {
+    var name2 = d.file;
+    var label2 = d.name;
+    // d3.xhr('/path_convert.rpy?' + $.param({'path1': name1, 'path2': name2, 'label1': label1, 'label2': label2, 'norm': norm, 'open': open, 'ext': ext, 'mul': mul, 'sub': sub}), 'text/plain', function (error, data) {
+    var simp1 = getSimpleName(name1);
+    var simp2 = getSimpleName(name2);
+    
+    d3.xhr(constructSwrPath(simp1, simp2), 'text/plain', function (error, data) {
+      if (error) return console.warn(error);
+      d3.select('.results').html(data.response).classed('results--show', true);
+
+      if ($($('.results').children()[1]).width() + $('.results').offset().left > $('body').width()) {
+        $('.results').width($('body').width() - 50 - $('.results').offset().left);
+      } else {
+        $('.results').width($($('.results').children()[1]).width());
+      }
+
+      eval(d3.select('.results')[0][0].children[0].innerHTML);
+      if (audio1 != null) {
+        audio1.parentNode.removeChild(audio1);
+        audio1 = null;
+      }
+      if (audio2 != null) {
+        audio2.parentNode.removeChild(audio2);
+        audio2 = null;
+      }
+
+      audioCreated1 = false;
+      audioCreated2 = false;
+
+      createAudio1 = function(callback) {
+        if (audioCreated1) {
+          callback();
+          return;
+        }
+
+        var fn1 = song1_f;
+
+        audio1 = document.createElement('audio');
+        audio1.id = 'audio1';
+        audio1.hidden = 'hidden';
+        document.body.appendChild(audio1);
+        audio1.src = fn1;
+        audio1.load();
+
+        pop1 = Popcorn('#audio1');
+
+        pop1.code({
+          start: end1_t - start1_t,
+          onStart: function(options) {
+            pop1.pause();
+          }
+        });
+        
+        $.each(chordTimes1, function(id, time) {
+          if (time.hasOwnProperty('end')) {
+            pop1.footnote({
+              start: time.start,
+              end: time.end,
+              text: '',
+              target: id,
+              effect: "applyclass",
+              applyclass: "playing"
+            });
+          } else {
+            pop1.footnote({
+              start: time.start,
+              text: '',
+              target: id,
+              effect: "applyclass",
+              applyclass: "playing"
+            });
+          }
+        });
+
+        audioCreated1 = true;
+        callback();
+      }
+
+      createAudio2 = function(callback) {
+        if (audioCreated2) {
+          callback();
+          return;
+        }
+
+        var fn2 = song2_f;
+
+        audio2 = document.createElement('audio');
+        audio2.id = 'audio2';
+        audio2.hidden = 'hidden';
+        document.body.appendChild(audio2);
+        audio2.src = fn2;
+        audio2.load();
+
+        pop2 = Popcorn('#audio2');
+
+        pop2.code({
+          start: end2_t - start2_t,
+          onStart: function(options) {
+            pop2.pause();
+          }
+        });
+
+        $.each(chordTimes2, function(id, time) {
+          if (time.hasOwnProperty('end')) {
+            pop2.footnote({
+              start: time.start,
+              end: time.end,
+              text: '',
+              target: id,
+              effect: "applyclass",
+              applyclass: "playing"
+            });
+          } else {
+            pop2.footnote({
+              start: time.start,
+              text: '',
+              target: id,
+              effect: "applyclass",
+              applyclass: "playing"
+            });
+          }
+
+          audioCreated2 = true;
+          callback();
+        });
+      }
+
+      $('.chord-section-1').click(function() {
+        $('.chord-section-2.playing').addClass('playing-faded');
+        $('.chord-section-1.playing').removeClass('playing-faded');
+
+        if (messageState == 'almostdone') {
+          $('.message').html('Click on a song outside the comparison results to stop the audio and reset.');
+          messageState = 'done';
+        }
+
+        if (pop1 !== undefined) {
+          pop1.pause();
+        }
+        if (pop2 !== undefined) {
+          pop2.pause();
+        }
+        var elem = $(this)[0];
+        createAudio1(function() {
+          pop1.currentTime(elem.dataset['start']);
+          pop1.play();
+        });
+
+      });
+      $('.track-name1').click(function() {
+        $('.track-name1').parent().children()[1].click();
+      })
+
+      $('.chord-section-2').click(function() {
+        $('.chord-section-1.playing').addClass('playing-faded');
+        $('.chord-section-2.playing').removeClass('playing-faded');
+        if (messageState == 'almostdone') {
+          $('.message').html('Click on a song outside the comparison results to stop the audio and reset.');
+          messageState = 'done';
+        }
+        if (pop1 !== undefined) {
+          pop1.pause();
+        }
+        if (pop2 !== undefined) {
+          pop2.pause();
+        }
+        var elem = $(this)[0];
+        createAudio2(function() {
+          pop2.currentTime(elem.dataset['start']);
+          pop2.play();
+        });
+      });
+      $('.track-name2').click(function() {
+        $('.track-name2').parent().children()[1].click();
+      })
+    });
+
+    return;
+  }
+  node
+    .each(function(n) { n.target = n.source = false; });
+
+  link
+    .classed("link--disappear", function(l) { return l.target !== d && l.source !== d; })
+    .filter(function(l) { return l.target !== d && l.source !== d; })
+    .each(function() { this.parentNode.appendChild(this); });
+
+  link
+    .filter(function(l) { return l.target === d || l.source === d;})
+    .style("stroke-opacity", function (l) { return opacity_hover(l.weight); })
+    .style("stroke-width", function (l) { return swidth_hover(l.weight); })
+
+  link
+    .each(function(l) { if (l.target === d) { l.source.fillweight = l.weight; l.source.selected = true; } if (l.source === d) { l.target.fillweight = l.weight; l.target.selected = true; }});
+
+  node
+    .filter(function(n) { var selected = n.selected; if (n.selected) n.selected = false; return n !== d && selected; })
+    .style("fill", function(n) { return colors(n.fillweight); })
+    .style("font-weight", function(n) { return Math.round(fontweight_hover(n.fillweight) / 100.0) * 100.0; });
+    // .classed("node--hover", true);
+
+  node
+    .filter(function(n) { return n === d;})
+    .style("font-weight", 700)
+    .style("fill", "#000");
+}
+
+function mouseouted(d) {
+  reset();
+}
+
+function reset() {
+  if (stuck != null)
+    return;
+  link
+    .classed("link--disappear", false)
+    .style("stroke-opacity", function (l) { return opacity(l.weight); })
+    .style("stroke-width", function (l) { return swidth(l.weight); })
+
+  node
+    .style("fill", "#bbb")
+    .style("font-weight", "400")
+    .classed("node--hover", false);
+  if (messageState == 'done') {
+    $('.dialog').fadeOut();
+    messageState = '';
+  }
+  d3.select('.results').text('').classed('results--show', false);
+  stopAudio();
+}
+
+function clicked(d) {
+  if (stuck != null) {
+    var si = stuck.indexOf(d);
+    if (si != -1) {
+      node.classed("node--stuck", false);
+      node.classed("node--stuck2", false);
+      if (stuck.length == 1) {
+        stuck = null;
+        d3.select('.results').text('').classed('results--show', false);
+        stopAudio();
+        reset();
+        return;
+      } else {
+        frozen = false;
+        stuck = null;
+        reset();
+        mouseovered(d);
+        stuck = [d];
+        mouseovered(d);
+        name1 = d.file;
+        label1 = d.name;
+        node.classed("node--stuck", function(n) { return n === d; });
+        return;
+      }
+
+    } else if (stuck.length == 1) {
+      if (messageState == 'click_click') {
+        $('.message').html('Feel free to drag the white results box around. Both songs&rsquo; chords are transposed for optimal similarity and shown below. The score indicates the strength of the alignment. Click on any chord to play the song at that point.');
+        messageState = 'almostdone';
+      }
+      stuck.push(d);
+      mouseovered(d);
+      frozen = true;
+      node.classed("node--stuck2", function(n) { return n === d; });
+      return;
+    } else if (stuck.length == 2) {
+      frozen = false;
+      node.classed("node--stuck", false);
+      node.classed("node--stuck2", false);
+      stuck = null;
+      reset();
+      mouseovered(d);
+      return;
+    }
+  } 
+  if (messageState == 'click') {
+    $('.message').html('Mouse over another song to view chord progression similarity results. Click another song to analyze the results.');
+    messageState = 'click_click';
+  }
+  if (stuck != null) {
+    stuck = null;
+    reset();
+  }
+  mouseovered(d);
+  stuck = [d];
+  name1 = d.file;
+  label1 = d.name;
+  node.classed("node--stuck", function(n) { return n === d; });
+}
+
+function playAudio(d, fn, transpose, start_time) {
+  var audio = document.createElement('audio');
+  audio.hidden = 'hidden';
+  d.appendChild(audio);
+  audio.src = fn;
+  audio.load();
+  audio.play();
+}
+
+function resultsMouseover() {
+  if (!frozen) {
+    if (resultsPosition == 'top') {
+      $('.results').css('top', 'initial').css('bottom', '90px');
+      resultsPosition = 'bottom';
+    } else {
+      resultsPosition = 'top';
+      if (dialogHidden) {
+        $('.results').css('bottom', 'initial').css('top', '110px');
+      } else {
+        $('.results').css('bottom', 'initial').css('top', '110px');
+      }
+    }
+  }
+}
+
+d3.select(self.frameElement).style("height", diameter + "px");
+
+(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+ga('create', 'UA-61566119-1', 'auto');
+ga('send', 'pageview');
+
+</script>
